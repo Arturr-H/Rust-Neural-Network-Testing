@@ -12,6 +12,9 @@ use std::fmt;
 use rand::{ Rng, thread_rng };
 
 /*- Constants -*/
+const ACTIVATION_FNS:&'static [(&'static str, fn(f32) -> f32)] = &[
+    ("sigmoid", sigmoid)
+];
 
 
 /*- Structs, enums & unions -*/
@@ -46,6 +49,9 @@ fn main() -> () {
 }
 
 /*- Functions -*/
+fn sigmoid(input:f32) -> f32 {
+    1.0 / (1.0 + f32::exp(-input))
+}
 
 /*- Implementations -*/
 impl NeuronDefaultTraits for Neuron {
