@@ -11,7 +11,10 @@
 /*- Imports -*/
 use std::{
     fmt,
-    iter::Iterator
+    iter::{
+        Iterator,
+        IntoIterator
+    }
 };
 use rand::{ Rng, thread_rng, distributions::uniform::SampleRange };
 
@@ -22,10 +25,10 @@ const ACTIVATION_FNS:&'static [(&'static str, fn(f32) -> f32)] = &[
 
 /*- Structs, enums & unions -*/
 #[derive(Debug)]
-struct NeuralNetwork<'lf> {
-    input: &'lf [Neuron],
-    hidden:&'lf [&'lf [Neuron] ],
-    output:&'lf [Neuron],
+struct NeuralNetwork {
+    input: Vec<Neuron>,
+    hidden:Vec<Vec<Neuron>>,
+    output:Vec<Neuron>,
     learning_rate: f32,
 }
 
@@ -35,50 +38,51 @@ struct Neuron {
     bias:f32,
 
     // These weights are connected to the neurons in
-    // the next layer, in the same order. It's an option
-    // because ex the output nodes won't have any weights
-    weights:Option<Vec<f32>>
+    // the next layer, in the same order.
+    weights:Vec<f32>
 }
 
 /*- Traits -*/
 trait NeuronDefaultTraits {
     fn new() -> Neuron; // Initialize with all values being 0.0f32
-    fn initialize_weights(network:NeuralNetwork<'static>, index:usize) -> Neuron;
+    fn with_inner(inner:f32) -> Neuron; // Initialize with all values being 0.0f32
 }
 
 /*- Initialize -*/
 fn main() -> () {
 
     /*- Create the layers -*/
-    let network:NeuralNetwork = NeuralNetwork {
-        input: &[Neuron::new(), Neuron::new()],
-        hidden: &[
-            &[Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
-            &[Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
+    let network:NeuralNetwork = initialize_weights(&NeuralNetwork {
+        input: vec![Neuron::with_inner(0.24124f32), Neuron::with_inner(0.51251f32)],
+        hidden: vec![
+            vec![Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
+            vec![Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
         ],
-        output: &[Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
+        output: vec![Neuron::new(), Neuron::new()],
         learning_rate: 0.1,
-    };
+    });
+
 
     /*- Print the layers -*/
     println!("{network:#?}");
     println!("{:#?}", sum_layer(&network, 3, 0));
+    println!("{:#?}", network);
 }
 
 
 /*- Functions -*/
-fn get_layer<'lf>(network:&'lf NeuralNetwork<'static>, index:usize) -> &'static [Neuron] {
+fn get_layer<'lf>(network:&'lf NeuralNetwork, index:usize) -> Vec<Neuron> {
     let total_layers = network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/;
 
     /*- Input layer -*/
     if index == 0 {
-        return network.input;
+        return network.input.to_vec();
     }else if index == total_layers - 1 {
-        return network.output;
+        return network.output.to_vec();
     }else {
         return match network.hidden.get(index - 1) {
-            Some(e) => *e,
-            None => &[]
+            Some(e) => e.to_vec(),
+            None => Vec::with_capacity(0)
         };
     }
 }
@@ -86,20 +90,23 @@ fn sigmoid(input:f32) -> f32 { 1.0 / (1.0 + f32::exp(-input)) }
 fn ReLU_leak(input:f32) -> f32 { if input > 0.0 { input } else { 0.01 * input } }
 fn random_weights(len:usize) -> Vec<f32> {
     let mut vec:Vec<f32> = Vec::with_capacity(len);
-
-    /*- Add random weights to the vec -*/
-    for i in 0..len+1 {
-        vec.push(thread_rng().gen_range::<f32, _>(-0.3..0.3))
-    };
-
-    /*- Return -*/
-    vec
+    if len == 0 { vec }
+    else {
+        
+        /*- Add random weights to the vec -*/
+        for i in 0..len+1 {
+            vec.push(thread_rng().gen_range::<f32, _>(-0.3..0.3))
+        };
+        
+        /*- Return -*/
+        vec
+    }
 }
 fn sum_layer(network:&NeuralNetwork, layer_index:usize, sum_for:usize) -> f32 {
     /*- If user wants to sum input -*/
     if layer_index == 0 {
         let mut sum:f32 = 0.0f32;
-        for a in network.input { sum += a.inner; };
+        for a in network.input.to_vec() { sum += a.inner; };
         sum
     }else {
         let mut sum:f32 = 0.0f32;
@@ -122,57 +129,53 @@ impl NeuronDefaultTraits for Neuron {
 
     /*- Default the neuron to 0.0f32 -*/
     fn new() -> Neuron {
-        Neuron { inner: 0.0, bias: 0.0, weights: Some(Vec::new()) }
+        Neuron { inner: 0.0, bias: 0.0, weights: Vec::new() }
     }
 
-    /*- Create all the weights of a neuron - returns a
-        neuron with weights depending on its output neurons -*/
-    fn initialize_weights(network:NeuralNetwork<'static>, index:usize) -> Neuron {
-        /*- Get the amount of layers in the network -*/
-        let network_layer_len:usize = network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/;
+    /*- Create a neuron with a specified inner value -*/
+    fn with_inner(inner:f32) -> Neuron {
+        Neuron { inner, bias: 0.0, weights: Vec::new() }
+    }
+}
 
-        /*- Check if index is output layer -*/
-        if index == network_layer_len-1 {
-            Neuron { inner: 0.0, bias: 0.0, weights:None }
-        }else {
-            let mut weights:&mut Vec<f32> = &mut Vec::new();
+/*- Create all the weights of every neuron - returns a neural network struct
+    neuron containing neurons with weights depending on its output neurons -*/
+fn initialize_weights(network:&NeuralNetwork) -> NeuralNetwork {
+    /*- Get the amount of layers in the network -*/
+    let network_layer_len:usize = network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/;
+    let mut all_layers:Vec<Vec<Neuron>> = Vec::with_capacity(network_layer_len);
 
-            /*- We'll be using the "he-et-al-initialization" algorithm to initialize all weights -*/
-            /*- It's done by this formula: sqrt(2 / (amount of neurons in the next layer)) -*/
-            let sqrt_2_div_next_layer_len = (2.0 / (get_layer(&network, index+1).len() as f32)).sqrt();
+    /*- Iterate over all the layers -*/
+    for i in 0..network_layer_len {
+        /*- Get the layer -*/
+        let mut layer = get_layer(network, i);
+        let next_layer_len = get_layer(network, i + 1).len();
 
-            /*- Add the weights to the vec -*/
-            for i in 0..get_layer(&network, index+1).len() { weights.push(sqrt_2_div_next_layer_len); };
+        /*- Iterate over all the neurons in the layer -*/
+        for j in 0..layer.len() {
+            /*- Get the neuron -*/
+            let mut neuron:Option<&mut Neuron> = layer.get_mut(j);
 
-            /*- Return the neuron -*/
-            Neuron { inner: 0.0, bias: 0.0, weights: Some(weights.to_vec()) }
-            // /*- Check if index is input layer -*/
-            // if index == 0 {
-            //     let fan_in:u16 = 0;
-
-            //     /*- Get how many output neurons the current neuron has -*/
-            //     let fan_out:f32 = match network.hidden.get(0) {
-            //         Some(e) => e.len() as f32,
-
-            //         /*- If there are no hidden layers, we'll
-            //             check how many neurons are in the output layer -*/
-            //         None => {
-            //             network.output.len() as f32
-            //         }
-            //     };
-
-            //     /*-
-            //      *- Algoritm, but not the real one. The real algorithm
-            //      *- is like this: sqrt(2 / fan_in), but the input layer
-            //      -* doesn't have any input neurons, so well use the outputs
-            //     -*/
-            //     weight = f32::sqrt(2.0 / fan_out)
-            // }else {
-
-            // }
-
-            // Neuron {}
+            /*- If the neuron has weights -*/
+            match neuron {
+                Some(e) => {
+                    /*- Create the weights -*/
+                    e.weights = random_weights(next_layer_len.checked_sub(1).unwrap_or(0));
+                },
+                None => ()
+            }
         }
+
+        /*- Add the layer to the all_layers -*/
+        all_layers.push(layer);
+    };
+
+    /*- Return -*/
+    NeuralNetwork {
+        input: all_layers.get(0).unwrap_or(&Vec::new()).to_vec(),
+        hidden: all_layers.get(1..all_layers.len() - 1).unwrap_or(&Vec::new()).to_vec(),
+        output: all_layers.get(all_layers.len() - 1).unwrap_or(&Vec::new()).to_vec(),
+        learning_rate: network.learning_rate,
     }
 }
 
@@ -181,6 +184,6 @@ impl NeuronDefaultTraits for Neuron {
 impl fmt::Debug for Neuron {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         /*- ":.3" will format the numbers so that they are rounded with 3 decimals -*/
-        write!(f, "Nc({:.3}s ~ {:.3}b)", self.inner, self.bias)
+        write!(f, "Nc({:.3}s ~ {:.3}b ~ {:?})", self.inner, self.bias, self.weights)
     }
 }
