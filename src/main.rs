@@ -49,7 +49,7 @@ fn main() -> () {
 
     /*- Create the layers -*/
     let network:NeuralNetwork = initialize_weights(&NeuralNetwork {
-        input: vec![Neuron::with_inner(0.24124f32), Neuron::with_inner(0.51251f32)],
+        input: vec![Neuron::with_inner(0.0), Neuron::with_inner(1.0), Neuron::with_inner(1.0)],
         hidden: vec![
             vec![Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
             vec![Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
@@ -83,8 +83,6 @@ fn get_layer<'lf>(network:&'lf NeuralNetwork, index:usize) -> Vec<Neuron> {
         };
     }
 }
-fn sigmoid(input:f32) -> f32 { 1.0 / (1.0 + f32::exp(-input)) }
-fn ReLU_leak(input:f32) -> f32 { if input > 0.0 { input } else { 0.01 * input } }
 fn random_weights(len:usize) -> Vec<f32> {
     let mut vec:Vec<f32> = Vec::with_capacity(len);
     if len == 0 { vec }
@@ -92,7 +90,7 @@ fn random_weights(len:usize) -> Vec<f32> {
         
         /*- Add random weights to the vec -*/
         for i in 0..len+1 {
-            vec.push(thread_rng().gen_range::<f32, _>(-0.3..0.3))
+            vec.push(thread_rng().gen_range::<f32, _>(-0.6..0.6))
         };
         
         /*- Return -*/
@@ -100,6 +98,7 @@ fn random_weights(len:usize) -> Vec<f32> {
     }
 }
 
+/*- Calculating neuron values -*/
 fn calculate_inner(network:&NeuralNetwork, layer_index:usize, neuron_index:usize) -> f32 {
     /*- Get the layers -*/
     let curr_layer = get_layer(network, layer_index);
@@ -131,15 +130,30 @@ fn calculate_all_inners(mut network:&NeuralNetwork) -> NeuralNetwork {
     /*- Iterate over all the layers, skip input
         because their inner should already be set -*/
     for layer_index in 1..network_layer_len {
-        println!("CALCULATING: {layer_index}");
         /*- Get the layer -*/
         let layer = get_layer(&network, layer_index);
-        println!("{layer:?}");
         let mut layer_mut = layer.clone();
 
         /*- Iterate over all neurons -*/
         for (neuron_index, neuron) in layer.iter().enumerate() {
-            layer_mut[neuron_index].inner = calculate_inner(&network, layer_index, neuron_index);
+            /*- If it's the output layer, we'll change the activation function to sigmoid -*/
+            if layer_index == network_layer_len - 1 {
+                layer_mut[neuron_index].inner = sigmoid(
+                    calculate_inner(
+                        &network,
+                        layer_index,
+                        neuron_index
+                    ) + layer_mut[neuron_index].bias
+                );
+            }else {
+                layer_mut[neuron_index].inner = ReLU_leak(
+                    calculate_inner(
+                        &network,
+                        layer_index,
+                        neuron_index
+                    ) + layer_mut[neuron_index].bias
+                );
+            };
         };
 
         /*- Set the all neutrons' inners in the new layer -*/
@@ -154,7 +168,9 @@ fn calculate_all_inners(mut network:&NeuralNetwork) -> NeuralNetwork {
     network
 }
 
-
+/*- Activation functions -*/
+fn sigmoid(input:f32) -> f32 { 1.0 / (1.0 + f32::exp(-input)) }
+fn ReLU_leak(input:f32) -> f32 { if input > 0.0 { input } else { 0.01 * input } }
 
 /*- Implementations -*/
 impl NeuronDefaultTraits for Neuron {
@@ -216,6 +232,6 @@ fn initialize_weights(network:&NeuralNetwork) -> NeuralNetwork {
 impl fmt::Debug for Neuron {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         /*- ":.3" will format the numbers so that they are rounded with 3 decimals -*/
-        write!(f, "Nc({:.3}s ~ {:.3}b ~ {:?})", self.inner, self.bias, self.weights)
+        write!(f, "Nc({:.6}s ~ {:.3}b ~ {:?})", self.inner, self.bias, self.weights)
     }
 }
