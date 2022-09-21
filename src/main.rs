@@ -41,12 +41,12 @@ struct Neuron {
 /*- Each epoch will go through training data -*/
 #[derive(Debug)]
 struct TrainingData<V1,V2> {
-    label: V1, data: Vec<V2>
+    label: Vec<V1>, data: Vec<V2>
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct JsonData {
-    items: Vec<(u8, Vec<u8>)>
+    items: Vec<(Vec<u8>, Vec<u8>)>
 }
 /*- Traits -*/
 trait NeuronDefaultTraits {
@@ -246,8 +246,8 @@ impl fmt::Debug for Neuron {
 
 /*- Quick methods for training data -*/
 impl TrainingData<u8, u8> {
-    pub fn new(label:u8, data:&Vec<u8>) -> TrainingData<u8, u8> {
-        TrainingData { label, data: data.to_vec() }
+    pub fn new(label:&Vec<u8>, data:&Vec<u8>) -> TrainingData<u8, u8> {
+        TrainingData { label: label.to_vec(), data: data.to_vec() }
     }
 }
 
@@ -285,7 +285,7 @@ fn main() -> () {
         }
     };
     let json_data:JsonData = serde_json::from_str(&data_string).unwrap();
-    let data:Vec<TrainingData<u8, u8>> = json_data.items.iter().map(|e| TrainingData::new(e.0, &e.1)).collect();
+    let data:Vec<TrainingData<u8, u8>> = json_data.items.iter().map(|e| TrainingData::new(&e.0, &e.1)).collect();
 
     println!("{data:?}");
 
