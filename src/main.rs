@@ -9,12 +9,12 @@
 )]
 
 /*- Imports -*/
-use std::{
-    fmt,
-};
+use std::{fmt, io::Read};
+use serde::{Deserialize, Serialize};
 use rand::{ Rng, thread_rng };
 
 /*- Constants -*/
+const EPOCHS:usize = 100usize;
 const ACTIVATION_FNS:&'static [(&'static str, fn(f32) -> f32)] = &[
     ("sigmoid", sigmoid)
 ];
@@ -38,33 +38,20 @@ struct Neuron {
     weights:Vec<f32>
 }
 
+/*- Each epoch will go through training data -*/
+#[derive(Debug)]
+struct TrainingData<V1,V2> {
+    label: V1, data: Vec<V2>
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct JsonData {
+    items: Vec<(u8, Vec<u8>)>
+}
 /*- Traits -*/
 trait NeuronDefaultTraits {
     fn new() -> Neuron; // Initialize with all values being 0.0f32
     fn with_inner(inner:f32) -> Neuron; // Initialize with all values being 0.0f32
-}
-
-/*- Initialize -*/
-fn main() -> () {
-
-    /*- Create the layers -*/
-    let network:NeuralNetwork = initialize_weights(&NeuralNetwork {
-        input: vec![Neuron::with_inner(0.0), Neuron::with_inner(1.0), Neuron::with_inner(1.0)],
-        hidden: vec![
-            vec![Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
-            vec![Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
-        ],
-        output: vec![Neuron::new(), Neuron::new()],
-        learning_rate: 0.1,
-    });
-
-
-    /*- Print the layers -*/
-    println!("{network:#?}");
-    println!(
-        "{:#?}",
-        calculate_all_inners(&network)
-    );
 }
 
 /*- Functions -*/
@@ -171,6 +158,27 @@ fn calculate_all_inners(mut network:&NeuralNetwork) -> NeuralNetwork {
 /*- Activation functions -*/
 fn sigmoid(input:f32) -> f32 { 1.0 / (1.0 + f32::exp(-input)) }
 fn ReLU_leak(input:f32) -> f32 { if input > 0.0 { input } else { 0.01 * input } }
+fn is_active(input:f32) -> bool { input > 0.5 }
+
+/*- Cost functions -*/
+fn mean_squared_error(compare_to:Vec<u8>, network:&NeuralNetwork) -> f32 {
+    let mut sum:f32 = 0.0;
+
+    /*- Loop through all the neurons in the output layer -*/
+    for (neuron_index, neuron) in network.output.iter().enumerate() {
+        /*- Get the neuron to compare to -*/
+        let compare_neuron = match compare_to.get(neuron_index) {
+            Some(e) => e,
+            None => panic!("AWBDOIAWBDOIAWOIBDOAIWD")
+        };
+
+        /*- Add the squared difference to the sum -*/
+        sum += f32::powf(neuron.inner - *compare_neuron as f32, 2.0);
+    };
+
+    /*- Return avg -*/
+    sum / network.output.len() as f32
+}
 
 /*- Implementations -*/
 impl NeuronDefaultTraits for Neuron {
@@ -234,4 +242,77 @@ impl fmt::Debug for Neuron {
         /*- ":.3" will format the numbers so that they are rounded with 3 decimals -*/
         write!(f, "Nc({:.6}s ~ {:.3}b ~ {:?})", self.inner, self.bias, self.weights)
     }
+}
+
+/*- Quick methods for training data -*/
+impl TrainingData<u8, u8> {
+    pub fn new(label:u8, data:&Vec<u8>) -> TrainingData<u8, u8> {
+        TrainingData { label, data: data.to_vec() }
+    }
+}
+
+/*- Initialize -*/
+fn main() -> () {
+
+    /*- Create the layers -*/
+    let network:NeuralNetwork = calculate_all_inners(&initialize_weights(&NeuralNetwork {
+        input: vec![Neuron::new(); 10],
+        hidden: vec![
+            vec![Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
+            vec![Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
+        ],
+        output: vec![Neuron::new(), Neuron::new()],
+        learning_rate: 0.1,
+    }));
+
+    /*- Load data and labels -*/
+    let data_string:String = match std::fs::File::open("./data.json") {
+        Ok(mut e) => {
+            let mut content_string:String = String::new();
+            match e.read_to_string(&mut content_string) {
+                Ok(e) => e,
+                Err(_) => {
+                    println!("Couldn't load data! (12)");
+                    return;
+                }
+            };
+
+            content_string
+        },
+        Err(_) => {
+            println!("Couldn't load data! (11)");
+            return;
+        }
+    };
+    let json_data:JsonData = serde_json::from_str(&data_string).unwrap();
+    let data:Vec<TrainingData<u8, u8>> = json_data.items.iter().map(|e| TrainingData::new(e.0, &e.1)).collect();
+
+    println!("{data:?}");
+
+    /*- Train -*/
+    for epoch in 0..EPOCHS {
+        /*- Calculate the cost -*/
+        let cost:f32 = mean_squared_error(vec![0, 1], &network);
+
+        /*- Print the cost -*/
+        println!("epoch: {:?} cost: {:?}", epoch, cost);
+
+        /*- If the cost is low enough -*/
+        if cost < 0.01 {
+            break;
+        };
+
+        /*- Iterate over data and labels -*/
+        // TODO
+
+    };
+
+    /*- Print the layers -*/
+    println!("{network:#?}");
+
+    for output_neuron in network.output.iter() {
+        println!("active: {:?}", is_active(output_neuron.inner));
+    }
+
+
 }
