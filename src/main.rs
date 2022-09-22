@@ -255,7 +255,7 @@ impl TrainingData<u8, u8> {
 fn main() -> () {
 
     /*- Create the layers -*/
-    let network:NeuralNetwork = calculate_all_inners(&initialize_weights(&NeuralNetwork {
+    let mut network:NeuralNetwork = calculate_all_inners(&initialize_weights(&NeuralNetwork {
         input: vec![Neuron::new(); 10],
         hidden: vec![
             vec![Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new(), Neuron::new()],
@@ -285,12 +285,12 @@ fn main() -> () {
         }
     };
     let json_data:JsonData = serde_json::from_str(&data_string).unwrap();
-    let data:Vec<TrainingData<u8, u8>> = json_data.items.iter().map(|e| TrainingData::new(&e.0, &e.1)).collect();
+    let training_data:Vec<TrainingData<u8, u8>> = json_data.items.iter().map(|e| TrainingData::new(&e.0, &e.1)).collect();
 
-    println!("{data:?}");
+    // println!("{data:?}");
 
     /*- Train -*/
-    for epoch in 0..EPOCHS {
+    for epoch in 0..1 {
         /*- Calculate the cost -*/
         let cost:f32 = mean_squared_error(vec![0, 1], &network);
 
@@ -303,8 +303,20 @@ fn main() -> () {
         };
 
         /*- Iterate over data and labels -*/
-        // TODO
+        for TrainingData { label, data } in &training_data {
 
+            /*- Update each input neurons to contain the data
+                from the training data, and we'll later compare
+                the output with the label to begin back-propagation -*/
+            for (index, mut input_neuron) in network.input.iter_mut().enumerate() {
+                input_neuron.inner = data[index] as f32;
+            };
+
+            /*- Update the network weights -*/
+            network = calculate_all_inners(&network);
+
+            println!("out: {:?}", network.output);
+        };
     };
 
     /*- Print the layers -*/

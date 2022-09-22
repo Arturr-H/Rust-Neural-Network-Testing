@@ -15,3 +15,9 @@ Efter att vi har tagit summan av en neuron, genom att göra det här: (n<sub>1</
 
 Så, en neurons värde kan beskrivas med en funktion:
 fn_a( activation_function( w<sub>0</sub>a<sub>0</sub> + w<sub>1</sub>a<sub>1</sub> +.... + b )); b är biasen
+
+## Cost functions
+Används för att beräkna hur mycket rätt neurala nätverket hade jämfört med "the desired output". Ger tillbaka en float som t.ex 0.2521, och man vill ha så låg cost som möjligt.
+
+## Main loop
+Man itererar runt epocher, och i dessa epocher så itererar man över data och labels för att köra dessa igenom neurala nätverk (man stoppar datan i input neuronerna och jämför output med labels). Efter det så kör man back propagation för att ändra weights och biases i nätverket, MAN OVERRIDAR ALDRIG WEIGHTS OCH BIASES, DE SKA BARA ÄNDRAS
