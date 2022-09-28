@@ -8,150 +8,24 @@
     non_snake_case
 )]
 
-/*- Imports -*/
-use serde::{ Deserialize, Serialize };
+/*- Modules & Imports -*/
+mod calculate_inners;
+mod network_utils;
+mod network_init;
+#[path = "structs/neuron.rs"] mod neuron;
+#[path = "structs/network.rs"] mod network;
+use neuron::Neuron;
+use network::NeuralNetwork;
+use calculate_inners::calculate_all_inners;
+use network_utils::{ get_layer, get_training_data, TrainingData };
+use network_init::initialize_weights;
 use rand::{ Rng, thread_rng };
 use std::{ fmt, io::Read };
 
 /*- Constants -*/
+static mut ERRS:u32 = 0;
 const EPOCHS:usize = 3usize;
 const LEARNING_RATE:f32 = 0.1f32;
-const ACTIVATION_FNS:&'static [(&'static str, fn(f32) -> f32)] = &[
-    ("sigmoid", sigmoid)
-];
-
-/*- Structs, enums & unions -*/
-#[derive(Debug, Clone)]
-struct NeuralNetwork {
-    input: Vec<Neuron>,
-    hidden:Vec<Vec<Neuron>>,
-    output:Vec<Neuron>,
-}
-
-#[derive(Clone)]
-pub struct Neuron {
-    inner:f32,
-    bias:f32,
-
-    // These weights are connected to the neurons in
-    // the next layer, in the same order.
-    weights:Vec<f32>
-}
-
-/*- Each epoch will go through training data -*/
-#[derive(Debug)]
-struct TrainingData<V1,V2> {
-    label: Vec<V1>, data: Vec<V2>
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct JsonData {
-    items: Vec<(Vec<u8>, Vec<u8>)>
-}
-
-/*- Traits -*/
-trait NeuronDefaultTraits {
-    fn new() -> Neuron; // Initialize with all values being 0.0f32
-    fn with_inner(inner:f32) -> Neuron; // Initialize with all values being 0.0f32
-    fn update_weights(&mut self, learning_rate:f32, delta:f32, prev_layer:&Vec<Neuron>); // Update weights
-    fn update_bias(&mut self, learning_rate:f32, delta:f32); // Update bias
-}
-
-/*- Functions -*/
-fn get_layer<'lf>(network:&'lf NeuralNetwork, index:usize) -> Vec<Neuron> {
-    let total_layers = network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/;
-
-    /*- Input layer -*/
-    if index == 0 {
-        return network.input.to_vec();
-    }else if index == total_layers - 1 {
-        return network.output.to_vec();
-    }else {
-        return match network.hidden.get(index - 1) {
-            Some(e) => e.to_vec(),
-            None => Vec::with_capacity(0)
-        };
-    }
-}
-
-
-fn random_weights(len:usize) -> Vec<f32> {
-    let mut vec:Vec<f32> = Vec::with_capacity(len);
-    if len == 0 { vec }
-    else {
-        
-        /*- Add random weights to the vec -*/
-        for i in 0..len+1 {
-            vec.push(thread_rng().gen_range::<f32, _>(-0.6..0.6))
-        };
-        
-        /*- Return -*/
-        vec
-    }
-}
-
-/*- Calculating neuron values -*/
-fn calculate_inner(network:&NeuralNetwork, layer_index:usize, neuron_index:usize) -> f32 {
-    /*- Get the layers -*/
-    let curr_layer = get_layer(network, layer_index);
-    let prev_layer = get_layer(network, layer_index - 1);
-    let mut sum:f32 = 0.;
-
-    /*- Loop through every neuron in the previous layer -*/
-    for previous_neuron in prev_layer {
-        /*- < previous_neuron.weights[neuron_index] > will grab the corresponding weight to this neuron -*/
-        sum += previous_neuron.inner * previous_neuron.weights[neuron_index];
-    }
-
-    /*- Return the sum -*/
-    sum
-}
-fn calculate_all_inners(network:&NeuralNetwork) -> NeuralNetwork {
-    /*- Get the amount of layers in the network -*/
-    let network_layer_len:usize = network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/;
-    let mut all_layers:Vec<Vec<Neuron>> = Vec::with_capacity(network_layer_len);
-    let mut network = network.clone();
-
-    /*- Iterate over all the layers, skip input
-        because their inner should already be set -*/
-    for layer_index in 1..network_layer_len {
-        /*- Get the layer -*/
-        let layer = get_layer(&network, layer_index);
-        let mut layer_mut = layer.clone();
-
-        /*- Iterate over all neurons -*/
-        for (neuron_index, neuron) in layer.iter().enumerate() {
-            /*- If it's the output layer, we'll change the activation function to sigmoid -*/
-            if layer_index == network_layer_len - 1 {
-                layer_mut[neuron_index].inner = sigmoid(
-                    calculate_inner(
-                        &network,
-                        layer_index,
-                        neuron_index
-                    ) + layer_mut[neuron_index].bias
-                );
-            }else {
-                layer_mut[neuron_index].inner = ReLU_leak(
-                    calculate_inner(
-                        &network,
-                        layer_index,
-                        neuron_index
-                    ) + layer_mut[neuron_index].bias
-                );
-            };
-        };
-
-        /*- Set the all neutrons' inners in the new layer -*/
-        if layer_index == network_layer_len - 1 {
-            network.output = layer_mut.clone();
-        }else {
-            network.hidden[layer_index - 1] = layer_mut.clone();
-        }
-    };
-
-    /*- Return -*/
-    network
-}
 
 /*- Activation functions -*/
 fn sigmoid(input:f32) -> f32 { 1.0 / (1.0 + f32::exp(-input)) }
@@ -178,189 +52,20 @@ fn mean_squared_error(compare_to:Vec<u8>, network:&NeuralNetwork) -> f32 {
     sum / network.output.len() as f32
 }
 
-/*- Create all the weights of every neuron - returns a neural network struct
-    neuron containing neurons with weights depending on its output neurons -*/
-fn initialize_weights(network:&NeuralNetwork) -> NeuralNetwork {
-    /*- Get the amount of layers in the network -*/
-    let network_layer_len:usize = network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/;
-    let mut all_layers:Vec<Vec<Neuron>> = Vec::with_capacity(network_layer_len);
-
-    /*- Iterate over all the layers -*/
-    for i in 0..network_layer_len {
-        /*- Get the layer -*/
-        let mut layer = get_layer(network, i);
-        let next_layer_len = get_layer(network, i + 1).len();
-
-        /*- Iterate over all the neurons in the layer -*/
-        for j in 0..layer.len() {
-            /*- Get the neuron -*/
-            let mut neuron:Option<&mut Neuron> = layer.get_mut(j);
-
-            /*- If the neuron has weights -*/
-            match neuron {
-                Some(e) => {
-                    /*- Create the weights -*/
-                    e.weights = random_weights(next_layer_len.checked_sub(1).unwrap_or(0));
-                },
-                None => ()
-            }
-        }
-
-        /*- Add the layer to the all_layers -*/
-        all_layers.push(layer);
-    };
-
-    /*- Return -*/
-    NeuralNetwork::from_layers(all_layers)
-}
-
-/*- Implementations -*/
-impl NeuronDefaultTraits for Neuron {
-
-    /*- Default the neuron to 0.0f32 -*/
-    fn new() -> Neuron {
-        Neuron { inner: 0.0, bias: 0.0, weights: Vec::new() }
-    }
-
-    /*- Create a neuron with a specified inner value -*/
-    fn with_inner(inner:f32) -> Neuron {
-        Neuron { inner, bias: 0.0, weights: Vec::new() }
-    }
-
-    /*- Actual functionality -*/
-    fn update_weights(&mut self, learning_rate:f32, delta:f32, prev_layer:&Vec<Neuron>) {
-
-        /*- Update weights -*/
-        for (i, neuron) in prev_layer.iter().enumerate() {
-            self.weights[i] -= learning_rate * delta * neuron.inner;
-        };
-    }
-    fn update_bias(&mut self, learning_rate:f32, delta:f32) {
-        self.bias -= learning_rate * delta;
-    }
-}
-
-/*- For keeping output tidy, derive Debug
-    impl will cause all keywords to display -*/
-impl fmt::Debug for Neuron {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        /*- ":.3" will format the numbers so that they are rounded with 3 decimals -*/
-        write!(f, "Nc({:.6}s ~ {:.3}b ~ {:?})", self.inner, self.bias, self.weights)
-    }
-}
-
-/*- Quick methods for training data -*/
-impl TrainingData<u8, u8> {
-    pub fn new(label:&Vec<u8>, data:&Vec<u8>) -> TrainingData<u8, u8> {
-        TrainingData { label: label.to_vec(), data: data.to_vec() }
-    }
-}
-
-/*- Quick setup methods for neural network struct -*/
-impl NeuralNetwork {
-    pub fn new(input_num:usize, hidden:(usize,usize), output_num:usize) -> NeuralNetwork {
-        NeuralNetwork {
-            input: vec![Neuron::new(); input_num],
-            hidden: vec![
-                vec![Neuron::new(); hidden.1]; hidden.0
-            ],
-            output: vec![Neuron::new(); output_num]
-        }
-    }
-
-    /*- Convert vec of layers to network -*/
-    fn from_layers(layers:Vec<Vec<Neuron>>) -> NeuralNetwork {
-        NeuralNetwork {
-            input: layers.get(0).unwrap_or(&Vec::new()).to_vec(),
-            hidden: layers.get(1..layers.len() - 1).unwrap_or(&Vec::new()).to_vec(),
-            output: layers.get(layers.len() - 1).unwrap_or(&Vec::new()).to_vec(),
-        }
-    }
-}
-
-/*- Implement iterator for NeuralNetwork for quickly being able to iterate over layers -*/
-impl IntoIterator for NeuralNetwork {
-    type Item = Vec<Neuron>;
-    type IntoIter = NNIntoIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        NNIntoIterator {
-            network: self,
-            index: 0,
-        }
-    }
-}
-
-/*- Struct iterator to keep track of index -*/
-pub struct NNIntoIterator {
-    network: NeuralNetwork,
-    index: usize,
-}
-
-/*- Implement iterator for NNIntoIterator -*/
-impl Iterator for NNIntoIterator {
-    type Item = Vec<Neuron>;
-    fn next(&mut self) -> Option<Vec<Neuron>> {
-
-        /*- Get total amount of layers in network -*/
-        let total_length:usize = self.network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/;
-
-        /*- Output layer -*/
-        if self.index == total_length - 1 {
-            /*- Increase index -*/
-            self.index += 1;
-            Some(self.network.output.clone())
-        }else {
-            /*- Input & Hidden layers -*/
-            let result:Option<Vec<Neuron>> = match self.index {
-                0 => Some(self.network.input.clone()),
-                _ => self.network.hidden.get(self.index - 1).map(|e| e.to_vec()),
-            };
-            
-            /*- Increase index -*/
-            self.index += 1;
-            result.clone()
-        }
-    }
-}
-
 /*- Initialize -*/
 fn main() -> () {
 
     /*- Create the layers -*/
-    let mut network:NeuralNetwork = NeuralNetwork::new(10, (2,15), 2);
+    let mut network:NeuralNetwork = NeuralNetwork::new(10, (2, 5), 2);
+
+    // TODO removing this line will cause mainloop not to update any neurons, whilst it should have set it as training data.
     network.input = vec![Neuron::with_inner(1.0); 10];
 
     /*- Initialize weights for all layers exept output (not needed) -*/
     network = initialize_weights(&network);
     
-    /*- Load training data and labels -*/
-    let data_string:String = match std::fs::File::open("./data.json") {
-        Ok(mut e) => {
-            let mut content_string:String = String::new();
-            match e.read_to_string(&mut content_string) {
-                Ok(e) => e,
-                Err(_) => {
-                    println!("Couldn't load data! (12)");
-                    return;
-                }
-            };
-
-            content_string
-        },
-        Err(_) => {
-            println!("Couldn't load data! (11)");
-            return;
-        }
-    };
-    let json_data:JsonData = serde_json::from_str(&data_string).unwrap();
-    let training_data:Vec<TrainingData<u8, u8>> = json_data.items.iter().map(|e| TrainingData::new(&e.0, &e.1)).collect();
-
-    network = calculate_all_inners(&network);
-    network = calculate_all_inners(&network);
-    network = calculate_all_inners(&network);
-    network = calculate_all_inners(&network);
-    network = calculate_all_inners(&network);
+    /*- Grab training data & labels from json file -*/
+    let training_data = get_training_data("./data.json");
 
     /*- Train -*/
     for epoch in 0..1 {
@@ -376,113 +81,38 @@ fn main() -> () {
         };
 
         /*- Iterate over data and labels -*/
-        // for TrainingData { label, data } in &training_data {
-            
-        //     /*- Backpropagation -*/
-        //     for (i, neuron) in network.output.iter_mut().enumerate() {
+        for TrainingData { label, data } in &training_data {
 
-        //         /*- Calculate the delta, the delta is the error of the neuron -*/
-        //         let delta:f32 = neuron.inner * (1.0 - neuron.inner) * (label[i] as f32 - neuron.inner);
-        //         let prev_layer:&Vec<Neuron> = &network.hidden[network.hidden.len() - 1];
+            /*- Change all input neurons inner values, but we won't change their weights yet. -*/
+            for (index, mut input_neuron) in network.input.iter().enumerate() {
+                match network.input.clone().get_mut(index) {
+                    Some(mut e) => {
 
-        //         /*- Update the weights and bias -*/
-        //         neuron.update_weights(LEARNING_RATE, delta, prev_layer);
-        //         neuron.update_bias(LEARNING_RATE, delta);
-        //     }
+                        /*- Change inner -*/
+                        e.inner = match data.get(index) {
+                            Some(e) => *e as f32,
+                            None => {
+                                /*- Unsafe is actually safe here because
+                                    we don't use any multithreading -*/
+                                unsafe { ERRS += 1; };
+                                0.
+                            },
+                        }
+                    },
+                    None => {
+                        unsafe { ERRS += 1; };
+                        ()
+                    },
+                }
+            }
 
-        //     /*- Iterate over hidden layers -*/
-        //     for (i, layer) in network.clone().hidden.iter_mut().enumerate().rev() {
-        //         for (j, neuron) in layer.iter_mut().enumerate() {
+            /*- Calculate the inner values of the neurons -*/
+            network = calculate_all_inners(&network);
+        };
 
-        //             /*- Calculate the delta, the delta is the error of the neuron -*/
-        //             let delta:f32 = neuron.inner * (1.0 - neuron.inner) * network.output.iter().map(|e| e.weights[j] * (label[e.weights.len() - 1] as f32 - e.inner)).sum::<f32>();
-        //             let prev_layer:&Vec<Neuron> = match i {
-        //                 0 => &network.input,
-        //                 _ => &network.hidden[i - 1],
-        //             };
-
-        //             /*- Update the weights and bias -*/
-        //             neuron.update_weights(LEARNING_RATE, delta, prev_layer);
-        //             neuron.update_bias(LEARNING_RATE, delta);
-        //         }
-        //     }
-
-        //     /*- Iterate over input layer -*/
-        //     for (i, neuron) in network.input.iter_mut().enumerate() {
-
-        //         /*- Calculate the delta, the delta is the error of the neuron -*/
-        //         let delta:f32 = neuron.inner * (1.0 - neuron.inner) * network.hidden[0].iter().map(|e| e.weights[i] * (label[e.weights.len() - 1] as f32 - e.inner)).sum::<f32>();
-        //         let prev_layer:Vec<Neuron> = data.iter().map(|e| Neuron::with_inner(*e as f32)).collect::<Vec<Neuron>>();
-
-        //         /*- Update the weights and bias -*/
-        //         neuron.update_weights(LEARNING_RATE, delta, &prev_layer);
-        //         neuron.update_bias(LEARNING_RATE, delta);
-        //     }
-
-        //     /*- Calculate the inner values of the neurons -*/
-        //     network = calculate_all_inners(&network);
-
-
-        //     // /*- Update each input neurons to contain the data
-        //     //     from the training data, and we'll later compare
-        //     //     the output with the label to begin back-propagation -*/
-        //     // for (index, mut input_neuron) in network.clone().input.iter_mut().enumerate() {
-        //     //     input_neuron.inner = data[index] as f32;
-        //     // };
-
-        //     // /*- Get the cost -*/
-        //     // let cost:f32 = mean_squared_error(label.to_vec(), &network);
-        //     // network = calculate_all_inners(
-        //     //     &initialize_weights(
-        //     //         &NeuralNetwork::new(10, (2,5), 2)
-        //     //     )
-        //     // );
-
-        //     // /*- Update the network weights by backpropagating -*/
-        //     // let mut layers:Vec<Vec<Neuron>> = network.clone().into_iter().collect::<Vec<Vec<Neuron>>>();
-        //     // for layer in layers.iter_mut().rev() {
-        //     //     for (neuron_index, neuron) in layer.clone().iter_mut().enumerate() {
-
-        //     //         /*- Calculate the delta -*/
-        //     //         let delta:f32 = match neuron.weights.len() {
-        //     //             0 => {
-        //     //                 /*- Output layer -*/
-        //     //                 neuron.inner * (1.0 - neuron.inner) * (label[neuron_index] as f32 - neuron.inner)
-        //     //             },
-        //     //             _ => {
-        //     //                 /*- Hidden layer -*/
-        //     //                 neuron.inner * (1.0 - neuron.inner) * neuron.weights.iter().sum::<f32>()
-        //     //             }
-        //     //         };
-
-        //     //         /*- Update the weights -*/
-        //     //         for weight_index in 0..neuron.weights.len() {
-        //     //             neuron.weights[weight_index] += delta * neuron.inner;
-        //     //         }
-
-        //     //         /*- Update the bias -*/
-        //     //         neuron.bias += delta;
-        //     //     };
-        //     // };
-
-        //     /*- Update the network -*/
-        //     // network = calculate_all_inners(&NeuralNetwork::from_layers(layers));
-        // };
+        println!("Main loop errors: {}", unsafe { ERRS });
     };
 
-    // println!("{:#?}", network);
-    network = calculate_all_inners(&network);
-    println!("{:#?}", network.output[0]);
-    network = calculate_all_inners(&network);
-    println!("{:#?}", network.output[0]);
-    network = calculate_all_inners(&network);
-    println!("{:#?}", network.output[0]);
-    network = calculate_all_inners(&network);
-    println!("{:#?}", network.output[0]);
-    network = calculate_all_inners(&network);
-    println!("{:#?}", network.output[0]);
-    // calculate_all_inners(&mut network);
-
-    // /*- Print the layers -*/
-    // println!("{:#?}", network);
+    /*- Print the layers -*/
+    println!("{:#?}", network);
 }
