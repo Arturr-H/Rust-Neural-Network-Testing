@@ -9,12 +9,13 @@
 )]
 
 /*- Imports -*/
-use std::{fmt, io::Read};
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize };
 use rand::{ Rng, thread_rng };
+use std::{ fmt, io::Read };
 
 /*- Constants -*/
-const EPOCHS:usize = 100usize;
+const EPOCHS:usize = 3usize;
+const LEARNING_RATE:f32 = 0.1f32;
 const ACTIVATION_FNS:&'static [(&'static str, fn(f32) -> f32)] = &[
     ("sigmoid", sigmoid)
 ];
@@ -47,11 +48,13 @@ struct TrainingData<V1,V2> {
 struct JsonData {
     items: Vec<(Vec<u8>, Vec<u8>)>
 }
+
 /*- Traits -*/
 trait NeuronDefaultTraits {
     fn new() -> Neuron; // Initialize with all values being 0.0f32
     fn with_inner(inner:f32) -> Neuron; // Initialize with all values being 0.0f32
-    fn update_weights_and_bias(&mut self, learning_rate:f32, delta:f32, prev_layer:&Vec<Neuron>);
+    fn update_weights(&mut self, learning_rate:f32, delta:f32, prev_layer:&Vec<Neuron>); // Update weights
+    fn update_bias(&mut self, learning_rate:f32, delta:f32); // Update bias
 }
 
 /*- Functions -*/
@@ -70,7 +73,6 @@ fn get_layer<'lf>(network:&'lf NeuralNetwork, index:usize) -> Vec<Neuron> {
         };
     }
 }
-
 
 
 fn random_weights(len:usize) -> Vec<f32> {
@@ -93,15 +95,7 @@ fn calculate_inner(network:&NeuralNetwork, layer_index:usize, neuron_index:usize
     /*- Get the layers -*/
     let curr_layer = get_layer(network, layer_index);
     let prev_layer = get_layer(network, layer_index - 1);
-
-    /*- Get the current neuron -*/
-    let neuron = &match curr_layer.get(neuron_index) {
-        Some(e) => e,
-        None => panic!("AWBDOIAWBDOIAWOIBDOAIWD")
-    };
-    
-    /*- Sum of all weights, biases and neuron inners -*/
-    let mut sum = neuron.inner;
+    let mut sum:f32 = 0.;
 
     /*- Loop through every neuron in the previous layer -*/
     for previous_neuron in prev_layer {
@@ -109,9 +103,10 @@ fn calculate_inner(network:&NeuralNetwork, layer_index:usize, neuron_index:usize
         sum += previous_neuron.inner * previous_neuron.weights[neuron_index];
     }
 
+    /*- Return the sum -*/
     sum
 }
-fn calculate_all_inners(mut network:&NeuralNetwork) -> NeuralNetwork {
+fn calculate_all_inners(network:&NeuralNetwork) -> NeuralNetwork {
     /*- Get the amount of layers in the network -*/
     let network_layer_len:usize = network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/;
     let mut all_layers:Vec<Vec<Neuron>> = Vec::with_capacity(network_layer_len);
@@ -161,7 +156,7 @@ fn calculate_all_inners(mut network:&NeuralNetwork) -> NeuralNetwork {
 /*- Activation functions -*/
 fn sigmoid(input:f32) -> f32 { 1.0 / (1.0 + f32::exp(-input)) }
 fn ReLU_leak(input:f32) -> f32 { if input > 0.0 { input } else { 0.01 * input } }
-fn is_active(input:f32) -> bool { input > 0.5 }
+fn large_step(input:f32) -> bool { input > 0.5 }
 
 /*- Cost functions -*/
 fn mean_squared_error(compare_to:Vec<u8>, network:&NeuralNetwork) -> f32 {
@@ -216,11 +211,7 @@ fn initialize_weights(network:&NeuralNetwork) -> NeuralNetwork {
     };
 
     /*- Return -*/
-    NeuralNetwork {
-        input: all_layers.get(0).unwrap_or(&Vec::new()).to_vec(),
-        hidden: all_layers.get(1..all_layers.len() - 1).unwrap_or(&Vec::new()).to_vec(),
-        output: all_layers.get(all_layers.len() - 1).unwrap_or(&Vec::new()).to_vec(),
-    }
+    NeuralNetwork::from_layers(all_layers)
 }
 
 /*- Implementations -*/
@@ -237,17 +228,15 @@ impl NeuronDefaultTraits for Neuron {
     }
 
     /*- Actual functionality -*/
-    fn update_weights_and_bias(&mut self, learning_rate:f32, delta:f32, prev_layer:&Vec<Neuron>) {
-        /*- Update the bias -*/
-        self.bias -= learning_rate * delta;
+    fn update_weights(&mut self, learning_rate:f32, delta:f32, prev_layer:&Vec<Neuron>) {
 
-        /*- Update the weights -*/
+        /*- Update weights -*/
         for (i, neuron) in prev_layer.iter().enumerate() {
-            match self.weights.get_mut(i) {
-                Some(a) => *a -= learning_rate * delta * neuron.inner,
-                None => continue,
-            };
-        }
+            self.weights[i] -= learning_rate * delta * neuron.inner;
+        };
+    }
+    fn update_bias(&mut self, learning_rate:f32, delta:f32) {
+        self.bias -= learning_rate * delta;
     }
 }
 
@@ -339,13 +328,13 @@ impl Iterator for NNIntoIterator {
 fn main() -> () {
 
     /*- Create the layers -*/
-    let mut network:NeuralNetwork = calculate_all_inners(
-        &initialize_weights(
-            &NeuralNetwork::new(10, (2,5), 2)
-        )
-    );
+    let mut network:NeuralNetwork = NeuralNetwork::new(10, (2,15), 2);
+    network.input = vec![Neuron::with_inner(1.0); 10];
 
-    /*- Load data and labels -*/
+    /*- Initialize weights for all layers exept output (not needed) -*/
+    network = initialize_weights(&network);
+    
+    /*- Load training data and labels -*/
     let data_string:String = match std::fs::File::open("./data.json") {
         Ok(mut e) => {
             let mut content_string:String = String::new();
@@ -367,6 +356,12 @@ fn main() -> () {
     let json_data:JsonData = serde_json::from_str(&data_string).unwrap();
     let training_data:Vec<TrainingData<u8, u8>> = json_data.items.iter().map(|e| TrainingData::new(&e.0, &e.1)).collect();
 
+    network = calculate_all_inners(&network);
+    network = calculate_all_inners(&network);
+    network = calculate_all_inners(&network);
+    network = calculate_all_inners(&network);
+    network = calculate_all_inners(&network);
+
     /*- Train -*/
     for epoch in 0..1 {
         /*- Calculate the cost -*/
@@ -381,43 +376,113 @@ fn main() -> () {
         };
 
         /*- Iterate over data and labels -*/
-        for TrainingData { label, data } in &training_data {
+        // for TrainingData { label, data } in &training_data {
+            
+        //     /*- Backpropagation -*/
+        //     for (i, neuron) in network.output.iter_mut().enumerate() {
 
-            /*- Update each input neurons to contain the data
-                from the training data, and we'll later compare
-                the output with the label to begin back-propagation -*/
-            for (index, mut input_neuron) in network.clone().input.iter_mut().enumerate() {
-                input_neuron.inner = data[index] as f32;
-            };
+        //         /*- Calculate the delta, the delta is the error of the neuron -*/
+        //         let delta:f32 = neuron.inner * (1.0 - neuron.inner) * (label[i] as f32 - neuron.inner);
+        //         let prev_layer:&Vec<Neuron> = &network.hidden[network.hidden.len() - 1];
 
-            /*- Update the network weights by backpropagating -*/
-            let mut layers:Vec<Vec<Neuron>> = network.clone().into_iter().collect::<Vec<Vec<Neuron>>>();
-            for layer in layers.iter_mut().rev() {
-                for neuron in layer.clone().iter_mut() {
-                    /*- Calculate the delta -*/
-                    let delta:f32 = neuron.inner * (1.0 - neuron.inner) * neuron.inner;
+        //         /*- Update the weights and bias -*/
+        //         neuron.update_weights(LEARNING_RATE, delta, prev_layer);
+        //         neuron.update_bias(LEARNING_RATE, delta);
+        //     }
 
-                    /*- Update the weights and bias -*/
-                    println!("BEF: {:?} - {}", neuron.weights, neuron.bias);
-                    neuron.update_weights_and_bias(0.1, delta, &layer);
-                    println!("AFT: {:?} - {}", neuron.weights, neuron.bias);
-                };
-            };
+        //     /*- Iterate over hidden layers -*/
+        //     for (i, layer) in network.clone().hidden.iter_mut().enumerate().rev() {
+        //         for (j, neuron) in layer.iter_mut().enumerate() {
 
-            /*- Update the network -*/
-            network = calculate_all_inners(&NeuralNetwork::from_layers(layers));
-        };
+        //             /*- Calculate the delta, the delta is the error of the neuron -*/
+        //             let delta:f32 = neuron.inner * (1.0 - neuron.inner) * network.output.iter().map(|e| e.weights[j] * (label[e.weights.len() - 1] as f32 - e.inner)).sum::<f32>();
+        //             let prev_layer:&Vec<Neuron> = match i {
+        //                 0 => &network.input,
+        //                 _ => &network.hidden[i - 1],
+        //             };
+
+        //             /*- Update the weights and bias -*/
+        //             neuron.update_weights(LEARNING_RATE, delta, prev_layer);
+        //             neuron.update_bias(LEARNING_RATE, delta);
+        //         }
+        //     }
+
+        //     /*- Iterate over input layer -*/
+        //     for (i, neuron) in network.input.iter_mut().enumerate() {
+
+        //         /*- Calculate the delta, the delta is the error of the neuron -*/
+        //         let delta:f32 = neuron.inner * (1.0 - neuron.inner) * network.hidden[0].iter().map(|e| e.weights[i] * (label[e.weights.len() - 1] as f32 - e.inner)).sum::<f32>();
+        //         let prev_layer:Vec<Neuron> = data.iter().map(|e| Neuron::with_inner(*e as f32)).collect::<Vec<Neuron>>();
+
+        //         /*- Update the weights and bias -*/
+        //         neuron.update_weights(LEARNING_RATE, delta, &prev_layer);
+        //         neuron.update_bias(LEARNING_RATE, delta);
+        //     }
+
+        //     /*- Calculate the inner values of the neurons -*/
+        //     network = calculate_all_inners(&network);
+
+
+        //     // /*- Update each input neurons to contain the data
+        //     //     from the training data, and we'll later compare
+        //     //     the output with the label to begin back-propagation -*/
+        //     // for (index, mut input_neuron) in network.clone().input.iter_mut().enumerate() {
+        //     //     input_neuron.inner = data[index] as f32;
+        //     // };
+
+        //     // /*- Get the cost -*/
+        //     // let cost:f32 = mean_squared_error(label.to_vec(), &network);
+        //     // network = calculate_all_inners(
+        //     //     &initialize_weights(
+        //     //         &NeuralNetwork::new(10, (2,5), 2)
+        //     //     )
+        //     // );
+
+        //     // /*- Update the network weights by backpropagating -*/
+        //     // let mut layers:Vec<Vec<Neuron>> = network.clone().into_iter().collect::<Vec<Vec<Neuron>>>();
+        //     // for layer in layers.iter_mut().rev() {
+        //     //     for (neuron_index, neuron) in layer.clone().iter_mut().enumerate() {
+
+        //     //         /*- Calculate the delta -*/
+        //     //         let delta:f32 = match neuron.weights.len() {
+        //     //             0 => {
+        //     //                 /*- Output layer -*/
+        //     //                 neuron.inner * (1.0 - neuron.inner) * (label[neuron_index] as f32 - neuron.inner)
+        //     //             },
+        //     //             _ => {
+        //     //                 /*- Hidden layer -*/
+        //     //                 neuron.inner * (1.0 - neuron.inner) * neuron.weights.iter().sum::<f32>()
+        //     //             }
+        //     //         };
+
+        //     //         /*- Update the weights -*/
+        //     //         for weight_index in 0..neuron.weights.len() {
+        //     //             neuron.weights[weight_index] += delta * neuron.inner;
+        //     //         }
+
+        //     //         /*- Update the bias -*/
+        //     //         neuron.bias += delta;
+        //     //     };
+        //     // };
+
+        //     /*- Update the network -*/
+        //     // network = calculate_all_inners(&NeuralNetwork::from_layers(layers));
+        // };
     };
 
-    /*- Print the layers -*/
-    println!("{:#?}", network);
-    // for (index, layer) in network.into_iter().enumerate() {
-    //     println!("layer {index}: {layer:?}");
-    // }
+    // println!("{:#?}", network);
+    network = calculate_all_inners(&network);
+    println!("{:#?}", network.output[0]);
+    network = calculate_all_inners(&network);
+    println!("{:#?}", network.output[0]);
+    network = calculate_all_inners(&network);
+    println!("{:#?}", network.output[0]);
+    network = calculate_all_inners(&network);
+    println!("{:#?}", network.output[0]);
+    network = calculate_all_inners(&network);
+    println!("{:#?}", network.output[0]);
+    // calculate_all_inners(&mut network);
 
-    // for output_neuron in network.output.iter() {
-    //     println!("active: {:?}", is_active(output_neuron.inner));
-    // }
-
-
+    // /*- Print the layers -*/
+    // println!("{:#?}", network);
 }
