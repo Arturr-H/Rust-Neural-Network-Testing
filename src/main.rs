@@ -15,7 +15,7 @@ mod network_init;
 #[path = "structs/neuron.rs"] mod neuron;
 #[path = "structs/network.rs"] mod network;
 use neuron::Neuron;
-use network::NeuralNetwork;
+use network::{ NeuralNetwork, NNIntoIterator };
 use calculate_inners::calculate_all_inners;
 use network_utils::{ get_layer, get_training_data, TrainingData };
 use network_init::initialize_weights;
@@ -84,12 +84,10 @@ fn main() -> () {
         for TrainingData { label, data } in &training_data {
 
             /*- Change all input neurons inner values, but we won't change their weights yet. -*/
-            for (index, mut input_neuron) in network.input.iter().enumerate() {
-                match network.input.clone().get_mut(index) {
+            for (index, mut input_neuron) in network.input.clone().iter().enumerate() {
+                match network.input.get(index) {
                     Some(mut e) => {
-
-                        /*- Change inner -*/
-                        e.inner = match data.get(index) {
+                        let change_to = match data.get(index) {
                             Some(e) => *e as f32,
                             None => {
                                 /*- Unsafe is actually safe here because
@@ -97,14 +95,71 @@ fn main() -> () {
                                 unsafe { ERRS += 1; };
                                 0.
                             },
-                        }
+                        };
+
+                        /*- Change inner -*/
+                        network.input[index].inner = change_to;
                     },
                     None => {
                         unsafe { ERRS += 1; };
                         ()
                     },
-                }
-            }
+                };
+            };
+
+            /*- Calculate all inners -*/
+            network = calculate_all_inners(&network);
+
+            println!("BE {}", network.input[0].weights[0]);
+
+            /*- Loop through all the neurons in the output layer -*/
+            for (neuron_index, mut neuron) in network.output.clone().iter_mut().enumerate() {
+                /*- Get the neuron to compare to -*/
+                let compare_neuron = match label.get(neuron_index) {
+                    Some(e) => e,
+                    None => panic!("AWBDOIAWBDOIAWOIBDOAIWD")
+                };
+
+                /*- Calculate the error & delta -*/
+                let error:f32 = *compare_neuron as f32 - neuron.inner;
+                let delta:f32 = error * neuron.inner * (1.0 - neuron.inner);
+
+                /*- Backpropagate / iterate backwards -*/
+                let mut layers_iter = network.clone().into_iter().prepare_back_iteration();
+                println!("{}", layers_iter.len());
+
+                // TODO Loop through all layers
+                while let (index, Some(layer)) = layers_iter.prev_with_index() {
+                    /*- Loop through all neurons in the layer -*/
+                    for mut neuron in layer {
+                        /*- Loop through all weights in the neuron -*/
+                        for weight_index in 0..neuron.weights.len() {
+                            /*- Calculate the weight change -*/
+                            let weight_change:f32 = delta * neuron.weights[weight_index];
+
+                            /*- Change the weight -*/
+                            neuron.weights[weight_index] += weight_change;
+                        };
+                    };
+                };
+
+                /*- Loop through all the weights in the neuron -*/
+                // for (weight_index, mut weight) in network.input[neuron_index].weights.clone().iter_mut().enumerate() {
+                //     /*- Get the neuron to compare to -*/
+                //     let compare_neuron = match network.input.get(weight_index) {
+                //         Some(e) => e,
+                //         None => panic!("AWBDOIAWBDOIAWOIBDOAIWD")
+                //     };
+
+                //     /*- Calculate the weight change -*/
+                //     let weight_change:f32 = LEARNING_RATE * delta * compare_neuron.inner;
+
+                //     /*- Change the weight -*/
+                //     network.input[neuron_index].weights[weight_index] += weight_change;
+                // };
+            };
+
+            println!("AF {}", network.input[0].weights[0]);
 
             /*- Calculate the inner values of the neurons -*/
             network = calculate_all_inners(&network);

@@ -76,3 +76,40 @@ impl Iterator for NNIntoIterator {
         }
     }
 }
+impl NNIntoIterator {
+    pub fn prepare_back_iteration(&self) -> Self  {
+        NNIntoIterator {
+            network: self.network.clone(),
+            index: self.network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/ + 1,
+        }
+    }
+    pub fn prev_with_index(&mut self) -> (usize, Option<Vec<Neuron>>) {
+        /*- Decrease index -*/
+        self.index -= 1;
+
+        /*- Get total amount of layers in network -*/
+        let total_length:usize = self.network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/;
+
+        /*- Output layer -*/
+        if self.index == total_length - 1 {
+            (self.index, Some(self.network.output.clone()))
+        }else {
+            /*- Input & Hidden layers -*/
+            let result:Option<Vec<Neuron>> = match self.index {
+                0 => Some(self.network.input.clone()),
+                _ => self.network.hidden.get(self.index - 1).map(|e| e.to_vec()),
+            };
+
+            (self.index, result.clone())
+        }
+    }
+    pub fn len(&self) -> usize {
+        self.network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/
+    }
+    pub fn new(network:&NeuralNetwork) -> NNIntoIterator {
+        NNIntoIterator {
+            network: network.clone(),
+            index: 0,
+        }
+    }
+}

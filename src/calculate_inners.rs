@@ -6,7 +6,7 @@ use crate::{
     sigmoid, ReLU_leak,
 };
 
-/*- Calculating neuron values -*/
+/// /*- Calculating neuron values -*/
 pub fn calculate_inner(network:&NeuralNetwork, layer_index:usize, neuron_index:usize) -> f32 {
     /*- Get the layers -*/
     let curr_layer = get_layer(network, layer_index);
@@ -22,6 +22,9 @@ pub fn calculate_inner(network:&NeuralNetwork, layer_index:usize, neuron_index:u
     /*- Return the sum -*/
     sum
 }
+/// Iterate over all neurons from input to output and calculate
+/// their inner values using the previous neurons' inner value, weight
+/// and the current bias.
 pub fn calculate_all_inners(network:&NeuralNetwork) -> NeuralNetwork {
     /*- Get the amount of layers in the network -*/
     let network_layer_len:usize = network.hidden.len() + 1 /*- Input -*/ + 1 /*- Output -*/;
