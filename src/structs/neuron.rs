@@ -40,10 +40,17 @@ impl Neuron {
 
 /*- For keeping output tidy, derive Debug
     impl will cause all keywords to display -*/
-    impl fmt::Debug for Neuron {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            /*- ":.3" will format the numbers so that they are rounded with 3 decimals -*/
-            write!(f, "Nc({:.6}s ~ {:.3}b ~ {:?})", self.inner, self.bias, self.weights)
-        }
+impl fmt::Debug for Neuron {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        /*- ":.3" will format the numbers so that they are rounded with 3 decimals -*/
+        write!(
+            f,
+            "N -<|{:^inner_width$}| |{:^bias_width$}| | {:>13?}| >",
+            format!("{:.6}", self.inner),
+            format!("{:.4}", self.bias),
+            self.weights,
+            inner_width=12,
+            bias_width=8
+        )
     }
-    
+}
